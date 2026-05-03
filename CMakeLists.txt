@@ -12,6 +12,7 @@ qt_add_executable(milandr_client
     mainclient.h
     mainclient.ui
     connection.h connection.cpp
+    GroupData.h
 )
 
 target_link_libraries(milandr_client
