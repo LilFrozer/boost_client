@@ -16,7 +16,11 @@
   <widget class="QWidget" name="centralwidget">
    <layout class="QVBoxLayout" name="verticalLayout">
     <item>
-     <widget class="QLineEdit" name="qlineedit_host"/>
+     <widget class="QLineEdit" name="qlineedit_host">
+      <property name="text">
+       <string>192.168.1.73</string>
+      </property>
+     </widget>
     </item>
     <item>
      <widget class="QPushButton" name="qpsh_connect">

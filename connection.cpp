@@ -4,7 +4,7 @@ BoostConnection::BoostConnection(boost::asio::io_context &io_context) :
     m_socket{io_context},
     m_resolver{io_context}
 {
-
+    std::cout << "initializing Iserver" << std::endl;
 }
 
 BoostConnection::~BoostConnection()
@@ -14,27 +14,30 @@ BoostConnection::~BoostConnection()
 
 void BoostConnection::connect(const std::string &host, const uint16_t port)
 {
-    auto ptr_self = shared_from_this();
-
-    m_resolver.async_resolve(host, std::to_string(port), [this, ptr_self](boost::system::error_code ec, boost::asio::ip::tcp::resolver::results_type endpoints)
+    try
     {
-        if( ec )
-        {
-            this->handle_error(ec, "resolve");
-            return;
-        }
-        boost::asio::async_connect(m_socket, endpoints, [this, ptr_self](boost::system::error_code ec, boost::asio::ip::tcp::endpoint)
+        m_resolver.async_resolve(host, std::to_string(port), [this](boost::system::error_code ec, boost::asio::ip::tcp::resolver::results_type endpoints)
         {
             if( ec )
             {
-                this->handle_error(ec, "connect");
+                this->handle_error(ec, "resolve");
+                return;
             }
-            else
+            boost::asio::async_connect(m_socket, endpoints, [this](boost::system::error_code ec, boost::asio::ip::tcp::endpoint)
             {
-                std::cout << "Connected to server!" << std::endl;
-            }
-         });
-    });
+                if( ec )
+                {
+                    this->handle_error(ec, "connect");
+                }
+                else
+                {
+                    std::cout << "Connected to server!" << std::endl;
+                }
+             });
+        });
+    } catch (const std::exception &e) {
+        std::cout << e.what() << std::endl;
+    }
 }
 
 void BoostConnection::disconnect()
@@ -107,16 +110,21 @@ void BoostConnection::send(TCP_DATA::DataTypes data_type, std::vector<uint8_t> &
     pkt.header.isFirst = 1;
     pkt.header.isLast = 1;
 
-    std::vector<uint8_t> buffer = packet_to_binary(pkt);
+    std::vector<uint8_t> header_binary = packet_to_binary(pkt);
 
-    uint32_t packet_size = htonl(buffer.size());
+    std::vector<uint8_t> full_packet;
+    full_packet.insert(full_packet.end(), header_binary.begin(), header_binary.end());
+    full_packet.insert(full_packet.end(), raw_data.begin(), raw_data.end());
+
+    unsigned packet_size = static_cast<unsigned>(full_packet.size());
     std::vector<boost::asio::const_buffer> buffers;
     buffers.push_back(boost::asio::buffer(&packet_size, 4));
-    buffers.push_back(boost::asio::buffer(buffer));
+    buffers.push_back(boost::asio::buffer(full_packet));
 
-    auto self = shared_from_this();
+    std::cout << "p_size=" << packet_size << std::endl;
 
-    boost::asio::async_write(m_socket, buffers, [this, self](boost::system::error_code ec, size_t length)
+
+    boost::asio::async_write(m_socket, buffers, [this](boost::system::error_code ec, size_t length)
     {
         if( ec )
         {

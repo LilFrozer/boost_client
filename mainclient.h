@@ -18,13 +18,12 @@ class MainClient : public QMainWindow
     Q_OBJECT
 
 public:
-    MainClient(QWidget *parent, std::unique_ptr<IConnection> &ptr_I);
+    MainClient(QWidget *parent, boost::asio::io_context &io);
     ~MainClient();
 
 private:
     Ui::MainClient *ui;
-    std::unique_ptr<IConnection> &m_ptr_I;
-
+    std::shared_ptr<IConnection> Iserver_{nullptr};
 private slots:
     void slot_connect();
     void slot_disconnect();
