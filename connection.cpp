@@ -1,8 +1,8 @@
 #include "connection.h"
 
 BoostConnection::BoostConnection(boost::asio::io_context &io_context) :
-    m_socket{io_context},
-    m_resolver{io_context}
+    socket_{io_context},
+    resolver_{io_context}
 {
     std::cout << "initializing Iserver" << std::endl;
 }
@@ -12,18 +12,18 @@ BoostConnection::~BoostConnection()
     this->disconnect();
 }
 
-void BoostConnection::connect(const std::string &host, const uint16_t port)
+void BoostConnection::connect(const str &host, const u16 port)
 {
     try
     {
-        m_resolver.async_resolve(host, std::to_string(port), [this](boost::system::error_code ec, boost::asio::ip::tcp::resolver::results_type endpoints)
+        resolver_.async_resolve(host, std::to_string(port), [this](boost::system::error_code ec, tcpNamespace::resolver::results_type endpoints)
         {
             if( ec )
             {
                 this->handle_error(ec, "resolve");
                 return;
             }
-            boost::asio::async_connect(m_socket, endpoints, [this](boost::system::error_code ec, boost::asio::ip::tcp::endpoint)
+            boost::asio::async_connect(socket_, endpoints, [this](boost::system::error_code ec, tcpNamespace::endpoint)
             {
                 if( ec )
                 {
@@ -32,6 +32,7 @@ void BoostConnection::connect(const std::string &host, const uint16_t port)
                 else
                 {
                     std::cout << "Connected to server!" << std::endl;
+                    this->async_read();
                 }
              });
         });
@@ -40,83 +41,121 @@ void BoostConnection::connect(const std::string &host, const uint16_t port)
     }
 }
 
+void BoostConnection::async_read() {
+    auto self = shared_from_this();
+    boost::asio::async_read(socket_, boost::asio::buffer(&size_, sizeof(size_)),
+        [this, self](boost::system::error_code ec, size_t) {
+        if (ec == boost::asio::error::eof) {
+            std::cerr << "Client disconnected" << std::endl;
+            return;
+        }
+        buffer_.resize(size_);
+        boost::asio::async_read(socket_, boost::asio::buffer(buffer_),
+        [this, self](boost::system::error_code ec, size_t) {
+            if (ec) {
+                std::cerr << "Body read error: " << ec.message() << std::endl;
+                return;
+            }
+            this->process_packet();
+            this->async_read();
+        });
+    });
+}
+
+void BoostConnection::process_packet() {
+    unsigned offset = 0;
+
+    proto_project::Packet pkt;
+    memcpy(&pkt.header.server_hash, &(this->buffer_)[offset], 2);
+    offset += 2;
+    memcpy(&pkt.header.total_data_size, &(this->buffer_)[offset], 4);
+    offset += 4;
+    memcpy(&pkt.header.total_cnt_packets, &(this->buffer_)[offset], 2);
+    offset += 2;
+    memcpy(&pkt.header.cur_packet_number, &(this->buffer_)[offset], 2);
+    offset += 2;
+    memcpy(&pkt.header.cur_packet_size, &(this->buffer_)[offset], 2);
+    offset += 2;
+    uint8_t flags = (this->buffer_)[offset];
+    pkt.header.isFirst = (flags & 0x01) ? 1 : 0;
+    pkt.header.isLast = (flags & 0x02) ? 1 : 0;
+    offset += 2;
+    memcpy(&pkt.d_type, &(this->buffer_)[offset], 2);
+    offset += 2;
+
+    pkt.buffer.assign((this->buffer_).begin() + offset, (this->buffer_).end());
+
+    if ( pkt.header.server_hash != proto_project::kServerHash ) {
+        std::cerr << "ERROR -> != kServerHash" << std::endl;
+        return;
+    }
+
+    if ( pkt.header.isFirst != 1 || pkt.header.isLast != 1 ) {
+        std::cerr << "ERROR -> !flags" << std::endl;
+        return;
+    }
+
+    switch (pkt.d_type) {
+    case tcp_data::DataTypes::TestStruct:
+    {
+        tcp_data::TestStruct a = tcp_data::TestStruct::deserialize(pkt.buffer.data());
+        std::cout << "---TestStruct---" << std::endl;
+        std::cout << a.a << std::endl;
+        std::cout << a.b << std::endl;
+        std::cout << a.c << std::endl;
+        for (size_t i=0;i<a.d.size();++i) {
+            std::cout << a.d[i] << " ";
+        }
+        std::cout << std::endl;
+        break;
+    }
+    case tcp_data::DataTypes::FirstData: {
+        tcp_data::FirstData a = tcp_data::FirstData::deserialize(pkt.buffer.data());
+        std::cout << "addr=" << a.client_addr << std::endl;
+        std::cout << "port=" << a.client_port << std::endl;
+        break;
+    }
+    default: {
+        std::cerr << "wtf is this data" << std::endl;
+        break;
+    }
+    }
+}
+
 void BoostConnection::disconnect()
 {
-    if( m_socket.is_open() )
+    if( socket_.is_open() )
     {
         boost::system::error_code ec;
-        m_socket.shutdown(boost::asio::ip::tcp::socket::shutdown_both, ec);
-        m_socket.close(ec);
+        socket_.shutdown(tcpNamespace::socket::shutdown_both, ec);
+        socket_.close(ec);
     }
 
     std::cout << "Connection`s disconnect" << std::endl;
 }
 
-std::vector<uint8_t> BoostConnection::packet_to_binary(CONNECTION::Packet &packet)
+void BoostConnection::async_write(proto_project::dpt data_type, const vU8 &buffer)
 {
-    std::vector<uint8_t> buffer;
-
-    buffer.insert(buffer.end(), reinterpret_cast<const uint8_t*>(&packet.header.server_hash),
-                  reinterpret_cast<const uint8_t*>(&packet.header.server_hash) + 2);
-
-    buffer.insert(buffer.end(), reinterpret_cast<const uint8_t*>(&packet.header.total_data_size),
-                  reinterpret_cast<const uint8_t*>(&packet.header.total_data_size) + 4);
-
-    buffer.insert(buffer.end(), reinterpret_cast<const uint8_t*>(&packet.header.total_cnt_packets),
-                  reinterpret_cast<const uint8_t*>(&packet.header.total_cnt_packets) + 2);
-
-    buffer.insert(buffer.end(), reinterpret_cast<const uint8_t*>(&packet.header.cur_packet_number),
-                  reinterpret_cast<const uint8_t*>(&packet.header.cur_packet_number) + 2);
-
-    buffer.insert(buffer.end(), reinterpret_cast<const uint8_t*>(&packet.header.cur_packet_size),
-                  reinterpret_cast<const uint8_t*>(&packet.header.cur_packet_size) + 2);
-
-    uint8_t flags = (packet.header.isFirst ? 0x01 : 0x00) |
-                    (packet.header.isLast ? 0x02 : 0x00);
-    buffer.push_back(flags);
-    buffer.push_back(0);
-
-    // !!!cast<>(DataTypes) -> int16_t
-    int16_t data_type = static_cast<uint16_t>(packet.data_type);
-    buffer.insert(buffer.end(), reinterpret_cast<const uint8_t*>(&data_type),
-                  reinterpret_cast<const uint8_t*>(&data_type) + 2);
-
-    buffer.insert(buffer.end(), packet.data.begin(), packet.data.end());
-
-    return buffer;
-}
-
-/**
- * @brief Отправка данных по tcp соединению
- */
-void BoostConnection::send(TCP_DATA::DataTypes data_type, std::vector<uint8_t> &raw_data)
-{
-    if( !m_socket.is_open() )
+    if( !socket_.is_open() )
     {
-        std::cout << "Connect to server for send!" << std::endl;
+        std::cerr << "Connect to server for send!" << std::endl;
         return;
     }
 
-    CONNECTION::Packet pkt{};
-
-    pkt.data_type = data_type;
-    pkt.data = raw_data;
-
-    pkt.header.total_data_size = raw_data.size();
+    proto_project::Packet pkt{};
+    pkt.d_type = data_type;
+    pkt.header.server_hash = proto_project::kServerHash;
+    pkt.header.total_data_size = buffer.size();
     pkt.header.total_cnt_packets = 1;
     pkt.header.cur_packet_number = 1;
-    pkt.header.cur_packet_size = raw_data.size() + sizeof(CONNECTION::PacketHeader) + sizeof(uint8_t);
-
+    pkt.header.cur_packet_size = buffer.size() + sizeof(u16) + sizeof(proto_project::phr);
     pkt.header.isFirst = 1;
     pkt.header.isLast = 1;
+    pkt.buffer = buffer;
 
-    std::vector<uint8_t> header_binary = packet_to_binary(pkt);
+    vU8 full_packet = proto_project::Packet::serialize(pkt);
 
-    std::vector<uint8_t> full_packet;
-    full_packet.insert(full_packet.end(), header_binary.begin(), header_binary.end());
-    full_packet.insert(full_packet.end(), raw_data.begin(), raw_data.end());
-
-    unsigned packet_size = static_cast<unsigned>(full_packet.size());
+    u32 packet_size = static_cast<u32>(full_packet.size());
     std::vector<boost::asio::const_buffer> buffers;
     buffers.push_back(boost::asio::buffer(&packet_size, 4));
     buffers.push_back(boost::asio::buffer(full_packet));
@@ -124,7 +163,7 @@ void BoostConnection::send(TCP_DATA::DataTypes data_type, std::vector<uint8_t> &
     std::cout << "p_size=" << packet_size << std::endl;
 
 
-    boost::asio::async_write(m_socket, buffers, [this](boost::system::error_code ec, size_t length)
+    boost::asio::async_write(socket_, buffers, [this](boost::system::error_code ec, size_t length)
     {
         if( ec )
         {
@@ -136,11 +175,9 @@ void BoostConnection::send(TCP_DATA::DataTypes data_type, std::vector<uint8_t> &
         }
     });
 
-    // std::cout << "Отправлен пакет #" << pkt.header.cur_packet_number
-    //           << "/" << pkt.header.total_cnt_packets
-    //           << ", размер: " << buffer.size() << " байт"
-    //           << ", isFirst=" << (int)pkt.header.isFirst
-    //           << ", isLast=" << (int)pkt.header.isLast << std::endl;
+    std::cout << "Отправлен пакет #" << pkt.header.cur_packet_number
+              << "/" << pkt.header.total_cnt_packets
+              << ", размер: " << buffers.size() << " байт" << std::endl;
 }
 
 void BoostConnection::handle_error(const boost::system::error_code& ec, const std::string& context)

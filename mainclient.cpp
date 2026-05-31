@@ -25,7 +25,7 @@ void MainClient::slot_connect()
 {
     QString host = ui->qlineedit_host->text();
     std::cout << "trying connect. addr:" << host.toStdString() << std::endl;
-    Iserver_->connect(host.toStdString(), CONNECTION::SERVER_PORT);
+    Iserver_->connect(host.toStdString(), proto_project::kServerPort);
 }
 
 void MainClient::slot_disconnect()
@@ -35,7 +35,7 @@ void MainClient::slot_disconnect()
 
 void MainClient::slot_send()
 {
-    TCP_DATA::TestStruct _struct;
+    tcp_data::TestStruct _struct;
     _struct.a = "test";
     _struct.b = 1;
     _struct.c = 0.75;
@@ -43,7 +43,5 @@ void MainClient::slot_send()
     for( size_t i=0;i<5;++i )
         _struct.d.push_back(i+i*i);
 
-    std::vector<uint8_t> raw_data = _struct.serilize();
-
-    Iserver_->send(TCP_DATA::DataTypes::TestStruct, raw_data);
+    Iserver_->async_write(proto_project::dpt::TestStruct, _struct.serilize());
 }
