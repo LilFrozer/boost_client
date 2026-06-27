@@ -4,8 +4,32 @@
 MainClient::MainClient(QWidget *parent, boost::asio::io_context &io)
     : QMainWindow(parent)
     , ui(new Ui::MainClient)
+    , plot_{std::make_unique<QCustomPlot>(this)}
 {
     ui->setupUi(this);
+
+    ui->plot->addWidget(plot_.get());
+
+    plot_->addGraph();
+    // plot_->addGraph();
+
+    QVector<unsigned> data = parseRcvFile("/Users/alekseypodoplelov/Downloads/1rcvdata.txt");
+    qDebug() << "data_size=" << data.size();
+
+    QVector<double> sin, x, cos, amp;
+
+    for(size_t i{};i<data.size();++i) {
+        x.push_back(i);
+        sin.push_back(static_cast<short>(data[i] & 0xFFFF));
+        cos.push_back(static_cast<short>((data[i] >> 16) & 0xFFFF));
+        amp.push_back(static_cast<float>(sqrt(10.0)*sqrt(sin[i] * sin[i]/10.0 + cos[i] * cos[i]/10.0)));
+    }
+    plot_->graph(0)->setData(x, amp);
+    plot_->graph(0)->setPen(QPen(Qt::blue));
+    // plot_->graph(1)->setData(x, cos);
+    // plot_->graph(1)->setPen(QPen(Qt::red));
+    plot_->rescaleAxes();
+    plot_->replot();
 
     QObject::connect(ui->qpsh_connect, &QPushButton::clicked, this, &MainClient::slot_connect);
     QObject::connect(ui->qpsh_disconnect, &QPushButton::clicked, this, &MainClient::slot_disconnect);

@@ -14,7 +14,10 @@
    <string>MainClient</string>
   </property>
   <widget class="QWidget" name="centralwidget">
-   <layout class="QVBoxLayout" name="verticalLayout">
+   <layout class="QVBoxLayout" name="verticalLayout" stretch="10,1,1,1,1,1">
+    <item>
+     <layout class="QVBoxLayout" name="plot"/>
+    </item>
     <item>
      <widget class="QLineEdit" name="qlineedit_host">
       <property name="text">
